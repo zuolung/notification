@@ -136,6 +136,44 @@ describe('Notification.Basic', () => {
     );
   });
 
+  it('getContainer works after prev container destory', () => {
+    let instance = null;
+    Notification.newInstance(
+      {
+        getContainer: () => {
+          const id = 'get-container-test2';
+          const div = document.createElement('div');
+          div.id = id;
+          div.innerHTML = '<span>test</span>';
+          document.body.appendChild(div);
+          return div;
+        },
+      },
+      (notification) => {
+        instance = notification;
+      },
+    );
+
+    instance.notice({
+      content: <p className="getContainer1">11111</p>,
+      duration: 0.1,
+    });
+
+    // container destory
+    document.body.removeChild(document.querySelector('#get-container-test2'));
+    expect(document.querySelector('#get-container-test2')).toBeFalsy();
+
+    setTimeout(() => {
+      instance.notice({
+        content: <p className="getContainer2">222222</p>,
+        duration: 1,
+      });
+      setTimeout(() => {
+        expect(document.querySelector('.getContainer2')).toBeTruthy();
+      }, 30);
+    }, 30);
+  });
+
   it('remove notify works', (done) => {
     let wrapper;
 

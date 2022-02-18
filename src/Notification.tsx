@@ -239,13 +239,24 @@ class Notification extends Component<NotificationProps, NotificationState> {
 Notification.newInstance = function newNotificationInstance(properties, callback) {
   const { getContainer, ...props } = properties || {};
   const div = document.createElement('div');
+  let mountTarget = document.body;
   if (getContainer) {
-    const root = getContainer();
-    root.appendChild(div);
+    mountTarget = getContainer();
+    mountTarget.appendChild(div);
   } else {
-    document.body.appendChild(div);
+    mountTarget.appendChild(div);
   }
   let called = false;
+  function isChildOfDocument(child) {
+    let parentNode = child.parentNode;
+    while (parentNode) {
+      if (document === parentNode) {
+        return true;
+      }
+      parentNode = parentNode.parentNode;
+    }
+    return false;
+  }
   function ref(notification: Notification) {
     if (called) {
       return;
@@ -253,6 +264,10 @@ Notification.newInstance = function newNotificationInstance(properties, callback
     called = true;
     callback({
       notice(noticeProps) {
+        if (getContainer && (!mountTarget || !isChildOfDocument(mountTarget))) {
+          mountTarget = getContainer();
+          mountTarget.appendChild(div);
+        }
         notification.add(noticeProps);
       },
       removeNotice(key) {
