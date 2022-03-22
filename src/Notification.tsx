@@ -240,14 +240,9 @@ Notification.newInstance = function newNotificationInstance(properties, callback
   const { getContainer, ...props } = properties || {};
   const div = document.createElement('div');
   let mountTarget = document.body;
-  if (getContainer) {
-    mountTarget = getContainer();
-    mountTarget.appendChild(div);
-  } else {
-    mountTarget.appendChild(div);
-  }
   let called = false;
-  function isChildOfDocument(child) {
+  function isChildOfDocument(child): boolean {
+    if (!child) return false;
     let parentNode = child.parentNode;
     while (parentNode) {
       if (document === parentNode) {
@@ -257,6 +252,13 @@ Notification.newInstance = function newNotificationInstance(properties, callback
     }
     return false;
   }
+  function appendAction(init?: boolean) {
+    if (!isChildOfDocument(mountTarget) || !mountTarget || init) {
+      mountTarget = getContainer ? getContainer() : document.body;
+      mountTarget.appendChild(div);
+    }
+  }
+  appendAction(true);
   function ref(notification: Notification) {
     if (called) {
       return;
@@ -264,10 +266,7 @@ Notification.newInstance = function newNotificationInstance(properties, callback
     called = true;
     callback({
       notice(noticeProps) {
-        if (getContainer && (!mountTarget || !isChildOfDocument(mountTarget))) {
-          mountTarget = getContainer();
-          mountTarget.appendChild(div);
-        }
+        appendAction();
         notification.add(noticeProps);
       },
       removeNotice(key) {
