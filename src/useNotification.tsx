@@ -1,39 +1,155 @@
 import * as React from 'react';
-import type { NoticeFunc, NoticeContent } from './Notification';
-import type Notification from './Notification';
-import Notice from './Notice';
+import Notifications from './Notifications';
+import type { Placement } from './Notifications';
+import type { NotificationsRef, OpenConfig } from './Notifications';
+import type { CSSMotionProps } from 'rc-motion';
+
+const defaultGetContainer = () => document.body;
+
+type OptionalConfig = Partial<OpenConfig>;
+
+export interface NotificationConfig {
+  prefixCls?: string;
+  /** Customize container. It will repeat call which means you should return same container element. */
+  getContainer?: () => HTMLElement;
+  motion?: CSSMotionProps | ((placement: Placement) => CSSMotionProps);
+  closeIcon?: React.ReactNode;
+  closable?: boolean;
+  maxCount?: number;
+  duration?: number;
+  /** @private. Config for notification holder style. Safe to remove if refactor */
+  className?: (placement: Placement) => string;
+  /** @private. Config for notification holder style. Safe to remove if refactor */
+  style?: (placement: Placement) => React.CSSProperties;
+  /** @private Trigger when all the notification closed. */
+  onAllRemoved?: VoidFunction;
+}
+
+export interface NotificationAPI {
+  open: (config: OptionalConfig) => void;
+  close: (key: React.Key) => void;
+  destroy: () => void;
+}
+
+interface OpenTask {
+  type: 'open';
+  config: OpenConfig;
+}
+
+interface CloseTask {
+  type: 'close';
+  key: React.Key;
+}
+
+interface DestroyTask {
+  type: 'destroy';
+}
+
+type Task = OpenTask | CloseTask | DestroyTask;
+
+let uniqueKey = 0;
+
+function mergeConfig<T>(...objList: Partial<T>[]): T {
+  const clone: T = {} as T;
+
+  objList.forEach((obj) => {
+    if (obj) {
+      Object.keys(obj).forEach((key) => {
+        const val = obj[key];
+
+        if (val !== undefined) {
+          clone[key] = val;
+        }
+      });
+    }
+  });
+
+  return clone;
+}
 
 export default function useNotification(
-  notificationInstance: Notification,
-): [NoticeFunc, React.ReactElement] {
-  const createdRef = React.useRef<Record<React.Key, React.ReactElement>>({});
-  const [elements, setElements] = React.useState<React.ReactElement[]>([]);
+  rootConfig: NotificationConfig = {},
+): [NotificationAPI, React.ReactElement] {
+  const {
+    getContainer = defaultGetContainer,
+    motion,
+    prefixCls,
+    maxCount,
+    className,
+    style,
+    onAllRemoved,
+    ...shareConfig
+  } = rootConfig;
 
-  function notify(noticeProps: NoticeContent) {
-    let firstMount = true;
-    notificationInstance.add(noticeProps, (div, props) => {
-      const { key } = props;
+  const [container, setContainer] = React.useState<HTMLElement>();
+  const notificationsRef = React.useRef<NotificationsRef>();
+  const contextHolder = (
+    <Notifications
+      container={container}
+      ref={notificationsRef}
+      prefixCls={prefixCls}
+      motion={motion}
+      maxCount={maxCount}
+      className={className}
+      style={style}
+      onAllRemoved={onAllRemoved}
+    />
+  );
 
-      if (div && (!createdRef.current[key] || firstMount)) {
-        const noticeEle = <Notice {...props} holder={div} />;
-        createdRef.current[key] = noticeEle;
+  const [taskQueue, setTaskQueue] = React.useState<Task[]>([]);
 
-        setElements((originElements) => {
-          const index = originElements.findIndex((ele) => ele.key === props.key);
+  // ========================= Refs =========================
+  const api = React.useMemo<NotificationAPI>(() => {
+    return {
+      open: (config) => {
+        const mergedConfig = mergeConfig(shareConfig, config);
+        if (mergedConfig.key === null || mergedConfig.key === undefined) {
+          mergedConfig.key = `rc-notification-${uniqueKey}`;
+          uniqueKey += 1;
+        }
 
-          if (index === -1) {
-            return [...originElements, noticeEle];
-          }
+        setTaskQueue((queue) => [...queue, { type: 'open', config: mergedConfig }]);
+      },
+      close: (key) => {
+        setTaskQueue((queue) => [...queue, { type: 'close', key }]);
+      },
+      destroy: () => {
+        setTaskQueue((queue) => [...queue, { type: 'destroy' }]);
+      },
+    };
+  }, []);
 
-          const cloneList = [...originElements];
-          cloneList[index] = noticeEle;
-          return cloneList;
-        });
-      }
+  // ======================= Container ======================
+  // React 18 should all in effect that we will check container in each render
+  // Which means getContainer should be stable.
+  React.useEffect(() => {
+    setContainer(getContainer());
+  });
 
-      firstMount = false;
-    });
-  }
+  // ======================== Effect ========================
+  React.useEffect(() => {
+    // Flush task when node ready
+    if (notificationsRef.current && taskQueue.length) {
+      taskQueue.forEach((task) => {
+        switch (task.type) {
+          case 'open':
+            notificationsRef.current.open(task.config);
+            break;
 
-  return [notify, <>{elements}</>];
+          case 'close':
+            notificationsRef.current.close(task.key);
+            break;
+
+          case 'destroy':
+            notificationsRef.current.destroy();
+            break;
+        }
+      });
+
+      setTaskQueue([]);
+    }
+  }, [taskQueue]);
+
+  // ======================== Return ========================
+  return [api, contextHolder];
 }
